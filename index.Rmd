@@ -1,0 +1,107 @@
+---
+title: "Course Project"
+author: "Anna Bayes"
+date: "August 15, 2016"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+setwd("//cvgfnp004/cincinnati/home/MyDocs/DataScienceCert/08-Practical Machine Learning/Course Project")
+library(caret)
+library(ggplot2)
+library(dplyr)
+library(rattle)
+library(parallel)
+library(doParallel)
+
+data <- read.csv("pml-training.csv")
+set.seed(100)
+inTrain <- createDataPartition(y = data$classe, p = .60, list = F)
+
+training <- data[inTrain,]
+testing <- data[-inTrain,]
+
+```
+
+```{r code, include=FALSE}
+# Isolate the predictor columns
+restrict_data <- function(data) {
+  # Make the columns numeric
+  data[8:159] <- apply(data[8:159], 2, function(x) suppressWarnings(as.numeric(as.character(x))))
+  # Remove all the columns with NA values
+  col_keep <- apply(data, 2, function(x) !any(is.na(x)))
+  # Remove identifier columns and class
+  col_keep[c(1:7, 160)] <- FALSE
+  col_keep <<- which(col_keep)
+  data[,col_keep]
+}
+
+### Build Model
+x <- restrict_data(training)
+y <- training[,160]
+
+# Parallel processing source: https://github.com/lgreski/datasciencectacontent/blob/master/markdown/pml-randomForestPerformance.md
+cluster <- makeCluster(detectCores() - 1) # convention to leave 1 core for OS
+registerDoParallel(cluster)
+
+# Set control parameters for cross-validation and parallel processing
+fitControl <- trainControl(method = "cv",
+                           number = 10,
+                           allowParallel = TRUE)
+
+# Run model
+mod <- train(x,y, method="rf",data=training,trControl = fitControl)
+
+stopCluster(cluster)
+
+### Test Model
+testpred <- predict(mod, testing[,col_keep])
+Test_Data_Results <- confusionMatrix(testpred, testing$classe)
+```
+
+## Background
+
+This model seeks to identify whether or not the a Unilateral Dumbbell Bicep Curl was performed correctly using data from accelerometers located on the participant's belt, forearm, arm, and dumbbell. There are 5 classes available. Class A corresponds to performing the exercise correctly. Classes B, C, D, and E correspond to common mistakes.
+
+## Data Selection 
+
+The original data was split into a training and testing set, with 60% of the data used for training. Some exploratory data analysis was performed on the training data to identify features to include in the model. The data contained 160 columns. 7 columns appeared to be identifiers, 100 of the columns contained missing values, 1 column was the actual class. This left 52 of the columns to be used to build the model. These columns all contained measurements from the various accelometers and contained no null values. These 52 columns were all used to build the model.
+
+```{r, include=FALSE}
+#### Renaming for better printing
+Model_Variables <- x
+```
+```{r}
+#### Columns used in the model ####
+str(Model_Variables)
+```
+
+## Model
+
+The model will need to be a classification model. The Random Forest is a very accurate model type that can be used for classification tasks and while it is computationally intensive, it can also take advantage of parallel processing, which I found to be necessary.
+
+While the Random Forest is one of the most accurate models, it can lead to overfitting, especially if it is not cross-validated. This model was built using the train function in the caret package which can include cross validation as part of the function. As part of the control parameters, this model was built using k-fold cross-validation with 10 folds. 
+
+```{r, include=FALSE}
+#### Renaming for better printing
+Model <- mod
+```
+```{r}
+#### Final Model Results ####
+Model$finalModel
+
+#### k-fold cross-validation with 10 folds ####
+Model$resample
+
+```
+
+## Validation
+
+The expected out of sample error rate can be found by running the model on the 40% of the original data that was held out for testing. Using 1 - Accuracy as the error rate, the out of sample error rate can be estimated as `r 1- Test_Data_Results$overall[1]` for this model
+
+
+```{r}
+#### Test data results ####
+Test_Data_Results
+
+```
